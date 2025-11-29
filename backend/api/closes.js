@@ -184,15 +184,13 @@ async function fetchDailyExcel({ symbol, date, marketCode }) {
   return { tradingDate, ...row };
 }
 
-async function getLastTradingCloses({ symbol, days, marketCode, startISO }) {
-  const need = Math.max(1, Math.min(Number(days) || 30, 60)); // 一次最多 60（前端會分頁拼一年）
+async function getLastTradingCloses({ symbol, days, marketCode }) {
+  const need = Math.max(1, Math.min(Number(days) || 20, 60));
   const results = [];
 
-  let d = startISO
-    ? DateTime.fromISO(startISO, { zone: "Asia/Taipei" }).startOf("day")
-    : DateTime.now().setZone("Asia/Taipei").startOf("day");
-
+  let d = DateTime.now().setZone("Asia/Taipei").startOf("day");
   let guard = 0;
+
   while (results.length < need && guard < 170) {
     const dateStr = d.toFormat("yyyy/MM/dd");
     try {
@@ -210,14 +208,15 @@ async function getLastTradingCloses({ symbol, days, marketCode, startISO }) {
     guard++;
   }
 
-  return results; // 最新在第 0 筆
+  return results;
 }
 
 module.exports = async (req, res) => {
-  // CORS：讓 GitHub Pages 也能呼叫
+  // CORS: 讓 GitHub Pages 可以呼叫
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     return res.end();
@@ -227,7 +226,6 @@ module.exports = async (req, res) => {
   const symbol = String(url.searchParams.get("symbol") || "TX").toUpperCase();
   const days = Number(url.searchParams.get("days") || 30);
   const marketCode = url.searchParams.get("marketCode") != null ? Number(url.searchParams.get("marketCode")) : 0;
-  const start = url.searchParams.get("start"); // yyyy-mm-dd
 
   if (!/^[A-Z0-9]+$/.test(symbol)) {
     res.statusCode = 400;
@@ -235,7 +233,7 @@ module.exports = async (req, res) => {
     return res.end(JSON.stringify({ error: "bad symbol" }));
   }
 
-  const data = await getLastTradingCloses({ symbol, days, marketCode, startISO: start || null });
+  const data = await getLastTradingCloses({ symbol, days, marketCode });
 
   let avgPrev4 = null;
   if (data.length >= 5) {
@@ -256,7 +254,6 @@ module.exports = async (req, res) => {
     JSON.stringify({
       symbol,
       marketCode,
-      start: start || null,
       fetchedAtTaipei: DateTime.now().setZone("Asia/Taipei").toISO(),
       avgPrev4,
       avgNext4,
