@@ -83,7 +83,7 @@
   <script>
     // ✅ 你的 Vercel 網址（後端 API）
     const API_BASE = "https://5day.vercel.app";
-    const res = await fetch(${API_BASE}/api/closes?symbol=TX&days=30&marketCode=0);
+
     let chart;
 
     const CACHE_VERSION = "v1";
@@ -133,6 +133,8 @@
       return (hh > 13) || (hh === 13 && mm >= 45);
     }
 
+    // dataNewestFirst[0] = 最新(C0)
+    // avgLine[i] = average of closes at (i+1..i+4)
     function buildPrev4AvgLine(dataNewestFirst) {
       const closes = dataNewestFirst.map(d => d.close);
       return closes.map((_, i) => {
@@ -159,7 +161,11 @@
     }
 
     function saveCacheMap(map) {
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify(map)); } catch {}
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(map));
+      } catch {
+        // ignore quota errors
+      }
     }
 
     function getCached(symbol, marketCode) {
@@ -168,12 +174,14 @@
       const entry = map[key];
       if (!entry) return null;
 
+      // 過期就丟掉
       if (!entry.savedAt || (Date.now() - entry.savedAt > CACHE_MAX_AGE_MS)) {
         delete map[key];
         saveCacheMap(map);
         return null;
       }
-      return entry.payload || null;
+
+      return entry.payload || null; // payload = 後端 json
     }
 
     function setCached(symbol, marketCode, payload) {
@@ -221,6 +229,7 @@
       const tag = fromCache ? "（快取）" : "";
       status.textContent = `更新時間（台北）：${new Date(json.fetchedAtTaipei).toLocaleString("zh-TW")} ${tag}`;
 
+      // chart (old -> new)
       const labels = [...data].reverse().map(d => d.date);
       const closes = [...data].reverse().map(d => d.close);
       const avgLine = buildPrev4AvgLine(data);
@@ -254,13 +263,12 @@
       const marketCode = document.getElementById("marketCode").value;
       const status = document.getElementById("status");
 
+      // 手動更新不限制時間，只提示
       if (!silentToast && !isAfterClose1345()) {
         toast("提醒：尚未收盤，這次顯示的是「最後成交價」（盤中會變動）。");
       }
 
       status.textContent = "抓資料中…";
-
-      // ✅ 改成呼叫 Vercel API
       const url = `${API_BASE}/api/closes?symbol=${encodeURIComponent(symbol)}&days=30&marketCode=${encodeURIComponent(marketCode)}`;
       const res = await fetch(url);
       const json = await res.json();
@@ -285,12 +293,12 @@
       return null;
     }
 
-    // ✅ 更新：永遠重新抓（不限制時間）
+    // ✅ 更新：永遠重新抓（你要的）
     document.getElementById("refresh").addEventListener("click", () => {
       fetchAndRender({ silentToast: false });
     });
 
-    // 切換：先顯示快取，沒有就不抓（等你按更新）
+    // 切換商品/時段：先顯示該組合的快取；沒有快取就不抓（等你按更新）
     document.getElementById("symbol").addEventListener("change", () => {
       const cached = showCacheIfAny();
       if (!cached) {
@@ -305,13 +313,13 @@
       }
     });
 
-    // 首次進來：先顯示快取
+    // ✅ 首次進來：先顯示快取（不抓）
     const cachedOnLoad = showCacheIfAny();
     if (!cachedOnLoad) {
       document.getElementById("status").textContent = "尚無快取；按「更新」開始抓資料。";
     }
 
-    // 收盤後自動抓一次（只有快取不是今天的交易日才抓）
+    // ✅ 若你仍想保留「收盤後自動抓一次」：只在收盤後且快取不是今天的交易日才自動抓
     (function maybeAutoFetchAfterClose() {
       if (!isAfterClose1345()) return;
 
@@ -322,6 +330,7 @@
       const taipeiToday = getTaipeiISODate();
       const cachedTradeDate = cached?.data?.[0]?.date;
 
+      // 沒快取 或 快取不是今天交易日 -> 自動抓一次
       if (!cached || (cachedTradeDate && cachedTradeDate !== taipeiToday)) {
         fetchAndRender({ silentToast: true });
       }
