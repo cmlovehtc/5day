@@ -9,61 +9,67 @@
 </head>
 
 <body class="bg-slate-950 text-slate-100">
-  <main class="max-w-5xl mx-auto p-5 md:p-8">
-    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-      <div>
-        <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">收盤價/最後成交價 & 前四日平均</h1>
-        <p class="text-slate-300 mt-2">
-          會記住你上次抓到的資料；下次進來先顯示快取，按「更新」才重新抓。
+  <main class="max-w-5xl mx-auto px-4 sm:px-5 py-5 md:py-8">
+    <header class="space-y-4">
+      <div class="flex flex-col gap-2">
+        <h1 class="text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight leading-snug">
+          收盤價/最後成交價 & 前四日平均
+        </h1>
+        <p class="text-slate-300 text-sm sm:text-base">
+          先顯示快取（秒開），進來後會自動抓一次最新資料；按「更新」可手動刷新。
         </p>
       </div>
 
-      <div class="flex gap-2 items-center">
-        <select id="symbol" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
+      <!-- controls: mobile-friendly -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 items-center">
+        <select id="symbol" class="col-span-2 sm:col-span-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-base">
           <option value="TX" selected>TX（台指期貨）</option>
           <option value="MTX">MTX（小台）</option>
           <option value="TMF">TMF（微型臺指）</option>
         </select>
 
-        <select id="marketCode" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
-          <option value="0" selected>一般交易時段</option>
-          <option value="1">盤後交易時段</option>
+        <select id="marketCode" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-base">
+          <option value="0" selected>一般</option>
+          <option value="1">盤後</option>
         </select>
 
-        <button id="refresh" class="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded-xl px-4 py-2 font-medium">
+        <button id="refresh"
+          class="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded-xl px-4 py-3 font-semibold text-base">
           更新
         </button>
       </div>
     </header>
 
-    <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+    <!-- cards -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-5 sm:mt-6">
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
         <div class="text-slate-300 text-sm">最新交易日收盤價（最後成交價）</div>
         <div id="closeToday" class="text-2xl font-semibold mt-2">—</div>
-        <div id="closeMeta" class="text-xs text-slate-400 mt-2">—</div>
+        <div id="closeMeta" class="text-xs text-slate-400 mt-2 break-words">—</div>
       </div>
 
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
         <div class="text-slate-300 text-sm">前 4 交易日平均（不含今天）</div>
         <div id="avgPrev4" class="text-2xl font-semibold mt-2">—</div>
-        <div id="avgPrev4Meta" class="text-xs text-slate-400 mt-2">—</div>
+        <div id="avgPrev4Meta" class="text-xs text-slate-400 mt-2 break-words">—</div>
       </div>
 
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
         <div class="text-slate-300 text-sm">預測下一交易日：前四日平均</div>
         <div id="avgNext4" class="text-2xl font-semibold mt-2">—</div>
-        <div id="avgNext4Meta" class="text-xs text-slate-400 mt-2">—</div>
+        <div id="avgNext4Meta" class="text-xs text-slate-400 mt-2 break-words">—</div>
       </div>
 
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
         <div class="text-slate-300 text-sm">今天 -（不含今天的前四日平均）</div>
         <div id="diff" class="text-2xl font-semibold mt-2">—</div>
-        <div id="diffMeta" class="text-xs text-slate-400 mt-2">—</div>
+        <div id="diffMeta" class="text-xs text-slate-400 mt-2 break-words">—</div>
       </div>
     </section>
 
+    <!-- chart -->
     <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mt-4">
-      <div class="flex items-center justify-between gap-3">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <div class="text-slate-200 font-medium">圖表</div>
           <div id="status" class="text-xs text-slate-400 mt-1">—</div>
@@ -71,8 +77,8 @@
         <div class="text-xs text-slate-400">平均線：每個點取它前 4 個交易日（不含當天）</div>
       </div>
 
-      <div class="mt-4">
-        <canvas id="chart" height="110"></canvas>
+      <div class="mt-4 h-[300px] sm:h-[340px]">
+        <canvas id="chart"></canvas>
       </div>
     </section>
 
@@ -86,7 +92,7 @@
 
     let chart;
 
-    const CACHE_VERSION = "v1";
+    const CACHE_VERSION = "v2"; // 換版避免舊快取格式干擾
     const CACHE_KEY = `tx_cache_${CACHE_VERSION}`;
     const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -95,7 +101,7 @@
       t.textContent = msg;
       t.classList.remove("hidden");
       clearTimeout(toast._timer);
-      toast._timer = setTimeout(() => t.classList.add("hidden"), 2400);
+      toast._timer = setTimeout(() => t.classList.add("hidden"), 2200);
     }
 
     function fmt(n) {
@@ -114,18 +120,6 @@
       const hh = Number(parts.find(p => p.type === "hour")?.value ?? "0");
       const mm = Number(parts.find(p => p.type === "minute")?.value ?? "0");
       return { hh, mm };
-    }
-
-    function getTaipeiISODate() {
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Taipei",
-        year: "numeric", month: "2-digit", day: "2-digit"
-      }).formatToParts(new Date());
-
-      const y = parts.find(p => p.type === "year").value;
-      const m = parts.find(p => p.type === "month").value;
-      const d = parts.find(p => p.type === "day").value;
-      return `${y}-${m}-${d}`;
     }
 
     function isAfterClose1345() {
@@ -161,11 +155,7 @@
     }
 
     function saveCacheMap(map) {
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(map));
-      } catch {
-        // ignore quota errors
-      }
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(map)); } catch {}
     }
 
     function getCached(symbol, marketCode) {
@@ -174,14 +164,12 @@
       const entry = map[key];
       if (!entry) return null;
 
-      // 過期就丟掉
       if (!entry.savedAt || (Date.now() - entry.savedAt > CACHE_MAX_AGE_MS)) {
         delete map[key];
         saveCacheMap(map);
         return null;
       }
-
-      return entry.payload || null; // payload = 後端 json
+      return entry.payload || null;
     }
 
     function setCached(symbol, marketCode, payload) {
@@ -248,6 +236,7 @@
         },
         options: {
           responsive: true,
+          maintainAspectRatio: false,
           interaction: { mode: "index", intersect: false },
           plugins: { legend: { labels: { color: "#e2e8f0" } } },
           scales: {
@@ -258,19 +247,20 @@
       });
     }
 
-    async function fetchAndRender({ silentToast = false } = {}) {
+    async function fetchLatestAndRender({ silentToast = false } = {}) {
       const symbol = document.getElementById("symbol").value;
       const marketCode = document.getElementById("marketCode").value;
       const status = document.getElementById("status");
 
-      // 手動更新不限制時間，只提示
       if (!silentToast && !isAfterClose1345()) {
         toast("提醒：尚未收盤，這次顯示的是「最後成交價」（盤中會變動）。");
       }
 
       status.textContent = "抓資料中…";
-      const url = `${API_BASE}/api/closes?symbol=${encodeURIComponent(symbol)}&days=30&marketCode=${encodeURIComponent(marketCode)}`;
-      const res = await fetch(url);
+
+      // ✅ 加上 _t 避免中間層快取；cache: 'no-store' 避免瀏覽器快取
+      const url = `${API_BASE}/api/closes?symbol=${encodeURIComponent(symbol)}&days=30&marketCode=${encodeURIComponent(marketCode)}&_t=${Date.now()}`;
+      const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
 
       if (!json?.data?.length) {
@@ -288,53 +278,35 @@
       const cached = getCached(symbol, marketCode);
       if (cached) {
         render(cached, { fromCache: true });
-        return cached;
+        return true;
       }
-      return null;
+      return false;
     }
 
-    // ✅ 更新：永遠重新抓（你要的）
+    // 手動更新
     document.getElementById("refresh").addEventListener("click", () => {
-      fetchAndRender({ silentToast: false });
+      fetchLatestAndRender({ silentToast: false });
     });
 
-    // 切換商品/時段：先顯示該組合的快取；沒有快取就不抓（等你按更新）
+    // 切換商品/時段：先顯示快取，然後立刻抓最新（這就是讓「別人進來也會更新」的關鍵）
     document.getElementById("symbol").addEventListener("change", () => {
-      const cached = showCacheIfAny();
-      if (!cached) {
-        document.getElementById("status").textContent = "此組合沒有快取；按「更新」才抓資料。";
-      }
+      showCacheIfAny();
+      fetchLatestAndRender({ silentToast: true });
     });
 
     document.getElementById("marketCode").addEventListener("change", () => {
-      const cached = showCacheIfAny();
-      if (!cached) {
-        document.getElementById("status").textContent = "此組合沒有快取；按「更新」才抓資料。";
-      }
+      showCacheIfAny();
+      fetchLatestAndRender({ silentToast: true });
     });
 
-    // ✅ 首次進來：先顯示快取（不抓）
-    const cachedOnLoad = showCacheIfAny();
-    if (!cachedOnLoad) {
-      document.getElementById("status").textContent = "尚無快取；按「更新」開始抓資料。";
+    // ✅ 進站流程：
+    // 1) 有快取就先畫（秒開）
+    // 2) 立刻自動抓最新覆蓋（所以別人不會一直卡舊快取）
+    const hadCache = showCacheIfAny();
+    if (!hadCache) {
+      document.getElementById("status").textContent = "尚無快取，正在抓最新資料…";
     }
-
-    // ✅ 若你仍想保留「收盤後自動抓一次」：只在收盤後且快取不是今天的交易日才自動抓
-    (function maybeAutoFetchAfterClose() {
-      if (!isAfterClose1345()) return;
-
-      const symbol = document.getElementById("symbol").value;
-      const marketCode = document.getElementById("marketCode").value;
-      const cached = getCached(symbol, marketCode);
-
-      const taipeiToday = getTaipeiISODate();
-      const cachedTradeDate = cached?.data?.[0]?.date;
-
-      // 沒快取 或 快取不是今天交易日 -> 自動抓一次
-      if (!cached || (cachedTradeDate && cachedTradeDate !== taipeiToday)) {
-        fetchAndRender({ silentToast: true });
-      }
-    })();
+    fetchLatestAndRender({ silentToast: true });
   </script>
 </body>
 </html>
