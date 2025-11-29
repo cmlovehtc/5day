@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>台指/小台/微型台指：前四日平均</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+
+<body class="bg-slate-950 text-slate-100">
+  <main class="max-w-5xl mx-auto p-5 md:p-8">
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">收盤價/最後成交價 & 前四日平均</h1>
+        <p class="text-slate-300 mt-2">會記住你上次抓到的資料；下次進來先顯示快取，按「更新」才重新抓。</p>
+      </div>
+
+      <div class="flex gap-2 items-center">
+        <select id="symbol" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
+          <option value="TX" selected>TX（台指期貨）</option>
+          <option value="MTX">MTX（小台）</option>
+          <option value="TMF">TMF（微型臺指）</option>
+        </select>
+
+        <select id="marketCode" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
+          <option value="0" selected>一般交易時段</option>
+          <option value="1">盤後交易時段</option>
+        </select>
+
+        <button id="refresh" class="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded-xl px-4 py-2 font-medium">
+          更新
+        </button>
+      </div>
+    </header>
+
+    <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+        <div class="text-slate-300 text-sm">最新交易日收盤價（最後成交價）</div>
+        <div id="closeToday" class="text-2xl font-semibold mt-2">—</div>
+        <div id="closeMeta" class="text-xs text-slate-400 mt-2">—</div>
+      </div>
+
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+        <div class="text-slate-300 text-sm">前 4 交易日平均（不含今天）</div>
+        <div id="avgPrev4" class="text-2xl font-semibold mt-2">—</div>
+        <div id="avgPrev4Meta" class="text-xs text-slate-400 mt-2">—</div>
+      </div>
+
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+        <div class="text-slate-300 text-sm">預測下一交易日：前四日平均</div>
+        <div id="avgNext4" class="text-2xl font-semibold mt-2">—</div>
+        <div id="avgNext4Meta" class="text-xs text-slate-400 mt-2">—</div>
+      </div>
+
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+        <div class="text-slate-300 text-sm">今天 -（不含今天的前四日平均）</div>
+        <div id="diff" class="text-2xl font-semibold mt-2">—</div>
+        <div id="diffMeta" class="text-xs text-slate-400 mt-2">—</div>
+      </div>
+    </section>
+
+    <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mt-4">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="text-slate-200 font-medium">圖表</div>
+          <div id="status" class="text-xs text-slate-400 mt-1">—</div>
+        </div>
+        <div class="text-xs text-slate-400">平均線：每個點取它前 4 個交易日（不含當天）</div>
+      </div>
+
+      <div class="mt-4">
+        <canvas id="chart" height="110"></canvas>
+      </div>
+    </section>
+
+    <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden
+      bg-slate-900 border border-slate-700 text-slate-100 px-4 py-2 rounded-xl shadow-lg text-sm"></div>
+  </main>
+
+  <script>
+    let chart;
+
+    const CACHE_VERSION = "v1";
+    const CACHE_KEY = `tx_cache_${CACHE_VERSION}`; // 存一包 map：{ "TX_0": {...}, "TMF_0": {...} ... }
+    const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 快取保留 7 天
+
+    function toast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.remove("hidden");
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => t.classList.add("hidden"), 2400);
+    }
+
+    function fmt(n) {
+      if (n == null || Number.isNaN(n)) return "—";
+      return new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(n);
+    }
+
+    function getTaipeiHM() {
+      const parts = new Intl.DateTimeFormat("zh-TW", {
+        timeZone: "Asia/Taipei",
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit"
+      }).formatToParts(new Date());
+
+      const hh = Number(parts.find(p => p.type === "hour")?.value ?? "0");
+      const mm = Number(parts.find(p => p.type === "minute")?.value ?? "0");
+      return { hh, mm };
+    }
+
+    function getTaipeiISODate() {
+      // yyyy-mm-dd（台北）
+      const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" })
+        .formatToParts(new Date());
+      const y = parts.find(p => p.type === "year").value;
+      const m = parts.find(p => p.type === "month").value;
+      const d = parts.find(p => p.type === "day").value;
+      return `${y}-${m}-${d}`;
+    }
+
+    function isAfterClose1345() {
+      const { hh, mm } = getTaipeiHM();
+      return (hh > 13) || (hh === 13 && mm >= 45);
+    }
+
+    function buildPrev4AvgLine(dataNewestFirst) {
+      const closes = dataNewestFirst.map(d => d.close);
+      return closes.map((_, i) => {
+        if (i + 4 >= closes.length) return null;
+        const slice = closes.slice(i + 1, i + 5);
+        const avg = slice.reduce((a, b) => a + b, 0) / 4;
+        return Number(avg.toFixed(2));
+      });
+    }
+
+    function cacheKeyFor(symbol, marketCode) {
+      return `${symbol}_${marketCode}`;
+    }
+
+    function loadCacheMap() {
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === "object") ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveCacheMap(map) {
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(map));
+      } catch {
+        // ignore quota errors
+      }
+    }
+
+    function getCached(symbol, marketCode) {
+      const map = loadCacheMap();
+      const key = cacheKeyFor(symbol, marketCode);
+      const entry = map[key];
+      if (!entry) return null;
+
+      // 過期就丟掉
+      if (!entry.savedAt || (Date.now() - entry.savedAt > CACHE_MAX_AGE_MS)) {
+        delete map[key];
+        saveCacheMap(map);
+        return null;
+      }
+
+      return entry.payload || null; // payload = 後端 json
+    }
+
+    function setCached(symbol, marketCode, payload) {
+      const map = loadCacheMap();
+      const key = cacheKeyFor(symbol, marketCode);
+      map[key] = { savedAt: Date.now(), payload };
+      saveCacheMap(map);
+    }
+
+    function render(json, { fromCache = false } = {}) {
+      const status = document.getElementById("status");
+      const data = json?.data || [];
+      if (!data.length) {
+        status.textContent = "沒有資料可顯示。";
+        return;
+      }
+
+      const today = data[0];
+      document.getElementById("closeToday").textContent = fmt(today.close);
+      document.getElementById("closeMeta").textContent =
+        `日期：${today.date}｜合約月：${today.contractMonth}｜成交量(挑主力)：${fmt(today.volume)}`;
+
+      const avgPrev4 = json.avgPrev4;
+      document.getElementById("avgPrev4").textContent = avgPrev4 != null ? fmt(avgPrev4) : "資料不足";
+      document.getElementById("avgPrev4Meta").textContent =
+        (data.length >= 5) ? `使用：${data[1].date}, ${data[2].date}, ${data[3].date}, ${data[4].date}` : `目前只有 ${data.length} 筆`;
+
+      const avgNext4 = json.avgNext4;
+      document.getElementById("avgNext4").textContent = avgNext4 != null ? fmt(avgNext4) : "資料不足";
+      document.getElementById("avgNext4Meta").textContent =
+        (data.length >= 4) ? `使用：${data[0].date}, ${data[1].date}, ${data[2].date}, ${data[3].date}` : `目前只有 ${data.length} 筆`;
+
+      if (avgPrev4 != null) {
+        const diff = Number((today.close - avgPrev4).toFixed(2));
+        const pct = Number(((diff / avgPrev4) * 100).toFixed(2));
+        document.getElementById("diff").textContent =
+          `${diff >= 0 ? "+" : ""}${fmt(diff)}（${diff >= 0 ? "+" : ""}${fmt(pct)}%）`;
+        document.getElementById("diffMeta").textContent =
+          `(${fmt(today.close)} - ${fmt(avgPrev4)}) / ${fmt(avgPrev4)}`;
+      } else {
+        document.getElementById("diff").textContent = "—";
+        document.getElementById("diffMeta").textContent = "—";
+      }
+
+      const tag = fromCache ? "（快取）" : "";
+      status.textContent = `更新時間（台北）：${new Date(json.fetchedAtTaipei).toLocaleString("zh-TW")} ${tag}`;
+
+      // chart (old -> new)
+      const labels = [...data].reverse().map(d => d.date);
+      const closes = [...data].reverse().map(d => d.close);
+      const avgLine = buildPrev4AvgLine(data);
+      const avgLineReversed = [...avgLine].reverse();
+
+      const ctx = document.getElementById("chart");
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "收盤價/最後成交價", data: closes, tension: 0.25, pointRadius: 2 },
+            { label: "前四交易日平均（不含當天）", data: avgLineReversed, tension: 0.25, pointRadius: 2, spanGaps: true }
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: "index", intersect: false },
+          plugins: { legend: { labels: { color: "#e2e8f0" } } },
+          scales: {
+            x: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(148,163,184,0.12)" } },
+            y: { ticks: { color: "#94a3b8" }, grid: { color: "rgba(148,163,184,0.12)" } }
+          }
+        }
+      });
+    }
+
+    async function fetchAndRender({ silentToast = false } = {}) {
+      const symbol = document.getElementById("symbol").value;
+      const marketCode = document.getElementById("marketCode").value;
+      const status = document.getElementById("status");
+
+      if (!silentToast && !isAfterClose1345()) {
+        toast("提醒：尚未收盤，這次顯示的是「最後成交價」（盤中會變動）。");
+      }
+
+      status.textContent = "抓資料中…";
+      const res = await fetch(`/api/closes?symbol=${encodeURIComponent(symbol)}&days=30&marketCode=${encodeURIComponent(marketCode)}`);
+      const json = await res.json();
+
+      if (!json?.data?.length) {
+        status.textContent = "沒有抓到資料（網站維護/非交易日/連線失敗）。";
+        return;
+      }
+
+      setCached(symbol, marketCode, json);
+      render(json, { fromCache: false });
+    }
+
+    function showCacheIfAny() {
+      const symbol = document.getElementById("symbol").value;
+      const marketCode = document.getElementById("marketCode").value;
+      const cached = getCached(symbol, marketCode);
+      if (cached) {
+        render(cached, { fromCache: true });
+        return cached;
+      }
+      return null;
+    }
+
+    // ✅ 更新：永遠重新抓（你要的）
+    document.getElementById("refresh").addEventListener("click", () => {
+      fetchAndRender({ silentToast: false });
+    });
+
+    // 切換商品/時段：先顯示該組合的快取；沒有快取就不抓（等你按更新）
+    document.getElementById("symbol").addEventListener("change", () => {
+      const cached = showCacheIfAny();
+      if (!cached) {
+        document.getElementById("status").textContent = "此組合沒有快取；按「更新」才抓資料。";
+      }
+    });
+    document.getElementById("marketCode").addEventListener("change", () => {
+      const cached = showCacheIfAny();
+      if (!cached) {
+        document.getElementById("status").textContent = "此組合沒有快取；按「更新」才抓資料。";
+      }
+    });
+
+    // ✅ 首次進來：先顯示快取（不抓）
+    const cachedOnLoad = showCacheIfAny();
+    if (!cachedOnLoad) {
+      document.getElementById("status").textContent = "尚無快取；按「更新」開始抓資料。";
+    }
+
+    // ✅ 若你仍想保留「收盤後自動抓一次」：只在收盤後且快取不是今天的交易日才自動抓
+    (function maybeAutoFetchAfterClose() {
+      if (!isAfterClose1345()) return;
+
+      const symbol = document.getElementById("symbol").value;
+      const marketCode = document.getElementById("marketCode").value;
+      const cached = getCached(symbol, marketCode);
+
+      const taipeiToday = getTaipeiISODate();
+      const cachedTradeDate = cached?.data?.[0]?.date;
+
+      // 沒快取 或 快取不是今天交易日 -> 自動抓一次
+      if (!cached || (cachedTradeDate && cachedTradeDate !== taipeiToday)) {
+        fetchAndRender({ silentToast: true });
+      }
+    })();
+  </script>
+</body>
+</html>
