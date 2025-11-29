@@ -1,0 +1,9 @@
+{
+  "name": "taifex-close-api",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "luxon": "^3.5.0"
+  }
+}
