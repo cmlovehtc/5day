@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>台指/小台/微型台指：前四日平均</title>
+  <title>微型台指 TMF：一年資料 + 目標價多空回測</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -12,39 +12,41 @@
   <main class="max-w-5xl mx-auto p-5 md:p-8">
     <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
       <div>
-        <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">收盤價/最後成交價 & 前四日平均</h1>
+        <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">微型台指 TMF：前四日目標價多空回測</h1>
         <p class="text-slate-300 mt-2">
-          會記住你上次抓到的資料；下次進來先顯示快取，按「更新」才重新抓。
+          資料來源 API：<span class="font-mono">https://5day.vercel.app/api/closes</span>
         </p>
       </div>
 
       <div class="flex gap-2 items-center">
-        <select id="symbol" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
-          <option value="TX" selected>TX（台指期貨）</option>
-          <option value="MTX">MTX（小台）</option>
-          <option value="TMF">TMF（微型臺指）</option>
-        </select>
-
         <select id="marketCode" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2">
           <option value="0" selected>一般交易時段</option>
           <option value="1">盤後交易時段</option>
         </select>
 
-        <button id="refresh" class="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded-xl px-4 py-2 font-medium">
-          更新
+        <button id="refresh30" class="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 rounded-xl px-4 py-2 font-medium">
+          更新(近30)
+        </button>
+
+        <button id="fetchYear" class="bg-slate-800 hover:bg-slate-700 rounded-xl px-4 py-2 font-medium">
+          抓一年資料(TMF)
+        </button>
+
+        <button id="useYear" class="bg-slate-800 hover:bg-slate-700 rounded-xl px-4 py-2 font-medium">
+          用一年資料畫圖
         </button>
       </div>
     </header>
 
     <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-        <div class="text-slate-300 text-sm">最新交易日收盤價（最後成交價）</div>
+        <div class="text-slate-300 text-sm">最新交易日價（最後成交價）</div>
         <div id="closeToday" class="text-2xl font-semibold mt-2">—</div>
         <div id="closeMeta" class="text-xs text-slate-400 mt-2">—</div>
       </div>
 
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-        <div class="text-slate-300 text-sm">前 4 交易日平均（不含今天）</div>
+        <div class="text-slate-300 text-sm">目標價：前 4 交易日平均（不含今天）</div>
         <div id="avgPrev4" class="text-2xl font-semibold mt-2">—</div>
         <div id="avgPrev4Meta" class="text-xs text-slate-400 mt-2">—</div>
       </div>
@@ -56,14 +58,14 @@
       </div>
 
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-        <div class="text-slate-300 text-sm">今天 -（不含今天的前四日平均）</div>
+        <div class="text-slate-300 text-sm">今天 - 目標價</div>
         <div id="diff" class="text-2xl font-semibold mt-2">—</div>
         <div id="diffMeta" class="text-xs text-slate-400 mt-2">—</div>
       </div>
     </section>
 
     <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mt-4">
-      <div class="flex items-center justify-between gap-3">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <div class="text-slate-200 font-medium">圖表</div>
           <div id="status" class="text-xs text-slate-400 mt-1">—</div>
@@ -76,19 +78,77 @@
       </div>
     </section>
 
+    <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mt-4">
+      <div class="text-slate-200 font-medium">一年回測（只交易 TMF：多空一口，訊號反手先平倉）</div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3 text-sm">
+        <label class="block">
+          <div class="text-slate-400">手續費/單邊/口(元)</div>
+          <input id="feePerSide" class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2"
+                 value="10" inputmode="decimal" />
+        </label>
+
+        <label class="block">
+          <div class="text-slate-400">TMF 點值(元/點)</div>
+          <input id="mulTMF" class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2"
+                 value="10" inputmode="decimal" />
+        </label>
+
+        <label class="block">
+          <div class="text-slate-400">期交稅率（股價類期貨每邊）</div>
+          <input id="taxRate" class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2"
+                 value="0.00002" inputmode="decimal" />
+          <div class="text-[11px] text-slate-500 mt-1">每邊稅額 = (價格×點值)×稅率</div>
+        </label>
+
+        <label class="block">
+          <div class="text-slate-400">交易口數</div>
+          <input id="lots" class="mt-1 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2"
+                 value="1" inputmode="numeric" />
+        </label>
+      </div>
+
+      <div class="flex flex-wrap gap-2 mt-3">
+        <button id="runBacktest" class="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 rounded-xl px-4 py-2 font-medium">
+          回測一年（TMF）
+        </button>
+        <div id="btStatus" class="text-xs text-slate-400 self-center">—</div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+        <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+          <div class="text-slate-300 text-sm">總損益（未扣費稅）</div>
+          <div id="btGross" class="text-2xl font-semibold mt-2">—</div>
+        </div>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+          <div class="text-slate-300 text-sm">手續費合計</div>
+          <div id="btFee" class="text-2xl font-semibold mt-2">—</div>
+        </div>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+          <div class="text-slate-300 text-sm">期交稅合計</div>
+          <div id="btTax" class="text-2xl font-semibold mt-2">—</div>
+        </div>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-2xl p-4">
+          <div class="text-slate-300 text-sm">總獲利（已扣費稅）</div>
+          <div id="btNet" class="text-2xl font-semibold mt-2">—</div>
+          <div id="btMeta" class="text-xs text-slate-400 mt-2">—</div>
+        </div>
+      </div>
+    </section>
+
     <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden
       bg-slate-900 border border-slate-700 text-slate-100 px-4 py-2 rounded-xl shadow-lg text-sm"></div>
   </main>
 
   <script>
-    // ✅ 你的 Vercel 網址（後端 API）
     const API_BASE = "https://5day.vercel.app";
-    const res = await fetch(`${API_BASE}/api/closes?symbol=TX&days=30&marketCode=0`);
-    let chart;
+    const SYMBOL = "TMF";
+    const PAGE_DAYS = 60;           // 每次抓 60 交易日
+    const YEAR_TRADING_DAYS = 260;  // 約一年交易日
+    const Y1_KEY = "tmf_y1_cache_v1";
+    const Y1_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-    const CACHE_VERSION = "v1";
-    const CACHE_KEY = `tx_cache_${CACHE_VERSION}`;
-    const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    let chart;
 
     function toast(msg) {
       const t = document.getElementById("toast");
@@ -103,36 +163,6 @@
       return new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(n);
     }
 
-    function getTaipeiHM() {
-      const parts = new Intl.DateTimeFormat("zh-TW", {
-        timeZone: "Asia/Taipei",
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit"
-      }).formatToParts(new Date());
-
-      const hh = Number(parts.find(p => p.type === "hour")?.value ?? "0");
-      const mm = Number(parts.find(p => p.type === "minute")?.value ?? "0");
-      return { hh, mm };
-    }
-
-    function getTaipeiISODate() {
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Taipei",
-        year: "numeric", month: "2-digit", day: "2-digit"
-      }).formatToParts(new Date());
-
-      const y = parts.find(p => p.type === "year").value;
-      const m = parts.find(p => p.type === "month").value;
-      const d = parts.find(p => p.type === "day").value;
-      return `${y}-${m}-${d}`;
-    }
-
-    function isAfterClose1345() {
-      const { hh, mm } = getTaipeiHM();
-      return (hh > 13) || (hh === 13 && mm >= 45);
-    }
-
     function buildPrev4AvgLine(dataNewestFirst) {
       const closes = dataNewestFirst.map(d => d.close);
       return closes.map((_, i) => {
@@ -143,53 +173,9 @@
       });
     }
 
-    function cacheKeyFor(symbol, marketCode) {
-      return `${symbol}_${marketCode}`;
-    }
-
-    function loadCacheMap() {
-      try {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw);
-        return (parsed && typeof parsed === "object") ? parsed : {};
-      } catch {
-        return {};
-      }
-    }
-
-    function saveCacheMap(map) {
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify(map)); } catch {}
-    }
-
-    function getCached(symbol, marketCode) {
-      const map = loadCacheMap();
-      const key = cacheKeyFor(symbol, marketCode);
-      const entry = map[key];
-      if (!entry) return null;
-
-      if (!entry.savedAt || (Date.now() - entry.savedAt > CACHE_MAX_AGE_MS)) {
-        delete map[key];
-        saveCacheMap(map);
-        return null;
-      }
-      return entry.payload || null;
-    }
-
-    function setCached(symbol, marketCode, payload) {
-      const map = loadCacheMap();
-      const key = cacheKeyFor(symbol, marketCode);
-      map[key] = { savedAt: Date.now(), payload };
-      saveCacheMap(map);
-    }
-
-    function render(json, { fromCache = false } = {}) {
-      const status = document.getElementById("status");
+    function renderTopCards(json) {
       const data = json?.data || [];
-      if (!data.length) {
-        status.textContent = "沒有資料可顯示。";
-        return;
-      }
+      if (!data.length) return;
 
       const today = data[0];
       document.getElementById("closeToday").textContent = fmt(today.close);
@@ -208,22 +194,18 @@
 
       if (avgPrev4 != null) {
         const diff = Number((today.close - avgPrev4).toFixed(2));
-        const pct = Number(((diff / avgPrev4) * 100).toFixed(2));
-        document.getElementById("diff").textContent =
-          `${diff >= 0 ? "+" : ""}${fmt(diff)}（${diff >= 0 ? "+" : ""}${fmt(pct)}%）`;
-        document.getElementById("diffMeta").textContent =
-          `(${fmt(today.close)} - ${fmt(avgPrev4)}) / ${fmt(avgPrev4)}`;
+        document.getElementById("diff").textContent = `${diff >= 0 ? "+" : ""}${fmt(diff)}`;
+        document.getElementById("diffMeta").textContent = `${fmt(today.close)} - ${fmt(avgPrev4)}`;
       } else {
         document.getElementById("diff").textContent = "—";
         document.getElementById("diffMeta").textContent = "—";
       }
+    }
 
-      const tag = fromCache ? "（快取）" : "";
-      status.textContent = `更新時間（台北）：${new Date(json.fetchedAtTaipei).toLocaleString("zh-TW")} ${tag}`;
-
-      const labels = [...data].reverse().map(d => d.date);
-      const closes = [...data].reverse().map(d => d.close);
-      const avgLine = buildPrev4AvgLine(data);
+    function renderChart(dataNewestFirst, labelPrefix = "") {
+      const labels = [...dataNewestFirst].reverse().map(d => d.date);
+      const closes = [...dataNewestFirst].reverse().map(d => d.close);
+      const avgLine = buildPrev4AvgLine(dataNewestFirst);
       const avgLineReversed = [...avgLine].reverse();
 
       const ctx = document.getElementById("chart");
@@ -233,8 +215,8 @@
         data: {
           labels,
           datasets: [
-            { label: "收盤價/最後成交價", data: closes, tension: 0.25, pointRadius: 2 },
-            { label: "前四交易日平均（不含當天）", data: avgLineReversed, tension: 0.25, pointRadius: 2, spanGaps: true }
+            { label: `${labelPrefix}收盤價/最後成交價`, data: closes, tension: 0.25, pointRadius: 2 },
+            { label: `${labelPrefix}前四交易日平均（不含當天）`, data: avgLineReversed, tension: 0.25, pointRadius: 2, spanGaps: true }
           ]
         },
         options: {
@@ -249,86 +231,226 @@
       });
     }
 
-    async function fetchAndRender({ silentToast = false } = {}) {
-      const symbol = document.getElementById("symbol").value;
-      const marketCode = document.getElementById("marketCode").value;
-      const status = document.getElementById("status");
+    async function fetchCloses({ marketCode, days, startISO = null }) {
+      const qs = new URLSearchParams({
+        symbol: SYMBOL,
+        days: String(days),
+        marketCode: String(marketCode),
+      });
+      if (startISO) qs.set("start", startISO);
+      const url = `${API_BASE}/api/closes?${qs.toString()}`;
+      const res = await fetch(url);
+      return await res.json();
+    }
 
-      if (!silentToast && !isAfterClose1345()) {
-        toast("提醒：尚未收盤，這次顯示的是「最後成交價」（盤中會變動）。");
+    // --- 一年快取 ---
+    function loadY1(marketCode) {
+      try {
+        const raw = localStorage.getItem(Y1_KEY);
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        const e = obj?.[String(marketCode)];
+        if (!e) return null;
+        if (!e.savedAt || Date.now() - e.savedAt > Y1_MAX_AGE_MS) return null;
+        return e.dataNewestFirst || null;
+      } catch {
+        return null;
+      }
+    }
+
+    function saveY1(marketCode, dataNewestFirst) {
+      try {
+        const raw = localStorage.getItem(Y1_KEY);
+        const obj = raw ? JSON.parse(raw) : {};
+        obj[String(marketCode)] = { savedAt: Date.now(), dataNewestFirst };
+        localStorage.setItem(Y1_KEY, JSON.stringify(obj));
+      } catch {}
+    }
+
+    async function fetchYear(marketCode) {
+      const status = document.getElementById("status");
+      status.textContent = `抓一年資料中：TMF（約 ${YEAR_TRADING_DAYS} 交易日）...`;
+
+      let all = [];
+      let cursor = null;
+      let guard = 0;
+
+      while (all.length < YEAR_TRADING_DAYS && guard < 12) {
+        const json = await fetchCloses({ marketCode, days: PAGE_DAYS, startISO: cursor });
+        const page = json.data || [];
+        if (!page.length) break;
+
+        for (const row of page) {
+          if (!all.find(x => x.date === row.date)) all.push(row);
+        }
+
+        const oldest = page[page.length - 1].date;
+        const d = new Date(oldest + "T00:00:00");
+        d.setDate(d.getDate() - 1);
+        cursor = d.toISOString().slice(0, 10);
+
+        status.textContent = `抓一年資料中：已取得 ${all.length}/${YEAR_TRADING_DAYS}...`;
+        guard++;
       }
 
-      status.textContent = "抓資料中…";
+      if (all.length < 30) {
+        status.textContent = `一年資料抓取不足（目前 ${all.length} 筆）。`;
+        return null;
+      }
 
-      // ✅ 改成呼叫 Vercel API
-      const url = `${API_BASE}/api/closes?symbol=${encodeURIComponent(symbol)}&days=30&marketCode=${encodeURIComponent(marketCode)}`;
-      const res = await fetch(url);
-      const json = await res.json();
+      saveY1(marketCode, all);
+      status.textContent = `一年資料完成：TMF 共 ${all.length} 筆（已存快取）。`;
+      return all;
+    }
 
+    async function refresh30() {
+      const marketCode = Number(document.getElementById("marketCode").value);
+      const status = document.getElementById("status");
+
+      status.textContent = "抓近30日資料中…";
+      const json = await fetchCloses({ marketCode, days: 30 });
       if (!json?.data?.length) {
-        status.textContent = "沒有抓到資料（API 無回應/非交易日/連線失敗）。";
+        status.textContent = "沒抓到資料（API/非交易日/連線問題）。";
         return;
       }
 
-      setCached(symbol, marketCode, json);
-      render(json, { fromCache: false });
+      renderTopCards(json);
+      renderChart(json.data, "TMF ");
+      status.textContent = `更新時間（台北）：${new Date(json.fetchedAtTaipei).toLocaleString("zh-TW")}（近30）`;
     }
 
-    function showCacheIfAny() {
-      const symbol = document.getElementById("symbol").value;
-      const marketCode = document.getElementById("marketCode").value;
-      const cached = getCached(symbol, marketCode);
-      if (cached) {
-        render(cached, { fromCache: true });
-        return cached;
+    // --- 回測（只做 TMF，多空一口，訊號反手先平） ---
+    function backtestTMF(dataNewestFirst, cfg) {
+      // dataNewestFirst: newest -> oldest
+      const series = [...dataNewestFirst].slice().reverse(); // old -> new
+      if (series.length < 10) throw new Error("資料太少");
+
+      const closes = series.map(d => d.close);
+      const dates = series.map(d => d.date);
+
+      const feePerSide = cfg.feePerSide;
+      const mul = cfg.multiplier;
+      const taxRate = cfg.taxRate;   // 0.00002
+      const lots = cfg.lots;
+
+      let pos = 0; // +1 long, -1 short, 0 flat
+      let gross = 0;
+      let feeSum = 0;
+      let taxSum = 0;
+      let sides = 0;
+
+      function sideCost(price) {
+        const tax = price * mul * taxRate * lots; // 每邊稅
+        const fee = feePerSide * lots;
+        return { tax, fee };
       }
-      return null;
+
+      // i 從 4 開始才有 target；用 i 的 close 決定持倉；持到 i+1 close
+      for (let i = 4; i < closes.length - 1; i++) {
+        const target = (closes[i-1] + closes[i-2] + closes[i-3] + closes[i-4]) / 4;
+        const c0 = closes[i];
+
+        let want = 0;
+        if (c0 > target) want = +1;
+        else if (c0 < target) want = -1;
+
+        // 反手/開倉/平倉：都在當日 close 成交（算單邊費用/稅）
+        if (want !== pos) {
+          // 平舊倉
+          if (pos !== 0) {
+            const cc = sideCost(c0);
+            feeSum += cc.fee; taxSum += cc.tax; sides += 1;
+          }
+          // 開新倉
+          if (want !== 0) {
+            const cc = sideCost(c0);
+            feeSum += cc.fee; taxSum += cc.tax; sides += 1;
+          }
+          pos = want;
+        }
+
+        // 持倉損益：i -> i+1
+        if (pos !== 0) {
+          gross += pos * (closes[i+1] - closes[i]) * mul * lots;
+        }
+      }
+
+      // 最後一天平倉
+      const last = closes.length - 1;
+      if (pos !== 0) {
+        const cLast = closes[last];
+        const cc = sideCost(cLast);
+        feeSum += cc.fee; taxSum += cc.tax; sides += 1;
+      }
+
+      const net = gross - feeSum - taxSum;
+
+      return {
+        gross, feeSum, taxSum, net,
+        from: dates[0], to: dates[dates.length - 1],
+        n: dates.length,
+        sides
+      };
     }
 
-    // ✅ 更新：永遠重新抓（不限制時間）
-    document.getElementById("refresh").addEventListener("click", () => {
-      fetchAndRender({ silentToast: false });
+    // --- UI 綁定 ---
+    document.getElementById("refresh30").addEventListener("click", refresh30);
+
+    document.getElementById("fetchYear").addEventListener("click", async () => {
+      const marketCode = Number(document.getElementById("marketCode").value);
+      await fetchYear(marketCode);
+      toast("一年資料抓完/已快取");
     });
 
-    // 切換：先顯示快取，沒有就不抓（等你按更新）
-    document.getElementById("symbol").addEventListener("change", () => {
-      const cached = showCacheIfAny();
-      if (!cached) {
-        document.getElementById("status").textContent = "此組合沒有快取；按「更新」才抓資料。";
+    document.getElementById("useYear").addEventListener("click", async () => {
+      const marketCode = Number(document.getElementById("marketCode").value);
+      const status = document.getElementById("status");
+
+      let data = loadY1(marketCode);
+      if (!data) data = await fetchYear(marketCode);
+      if (!data) return;
+
+      renderChart(data, "TMF（一年） ");
+      status.textContent = `已使用一年資料畫圖：TMF 共 ${data.length} 筆`;
+    });
+
+    document.getElementById("runBacktest").addEventListener("click", async () => {
+      const btStatus = document.getElementById("btStatus");
+      const marketCode = Number(document.getElementById("marketCode").value);
+
+      btStatus.textContent = "準備一年資料…";
+      let y1 = loadY1(marketCode);
+      if (!y1) y1 = await fetchYear(marketCode);
+      if (!y1) {
+        btStatus.textContent = "一年資料不足，回測中止。";
+        return;
+      }
+
+      const cfg = {
+        feePerSide: Number(document.getElementById("feePerSide").value || 10),
+        multiplier: Number(document.getElementById("mulTMF").value || 10),
+        taxRate: Number(document.getElementById("taxRate").value || 0.00002),
+        lots: Math.max(1, Number(document.getElementById("lots").value || 1))
+      };
+
+      try {
+        btStatus.textContent = "回測計算中…";
+        const r = backtestTMF(y1, cfg);
+
+        document.getElementById("btGross").textContent = fmt(r.gross);
+        document.getElementById("btFee").textContent = fmt(r.feeSum);
+        document.getElementById("btTax").textContent = fmt(r.taxSum);
+        document.getElementById("btNet").textContent = fmt(r.net);
+        document.getElementById("btMeta").textContent =
+          `區間：${r.from} ~ ${r.to}｜交易日：${r.n}｜總單邊次數：${r.sides}`;
+        btStatus.textContent = "回測完成 ✅";
+      } catch (e) {
+        btStatus.textContent = `回測失敗：${e.message || e}`;
       }
     });
 
-    document.getElementById("marketCode").addEventListener("change", () => {
-      const cached = showCacheIfAny();
-      if (!cached) {
-        document.getElementById("status").textContent = "此組合沒有快取；按「更新」才抓資料。";
-      }
-    });
-
-    // 首次進來：先顯示快取
-    const cachedOnLoad = showCacheIfAny();
-    if (!cachedOnLoad) {
-      document.getElementById("status").textContent = "尚無快取；按「更新」開始抓資料。";
-    }
-
-    // 收盤後自動抓一次（只有快取不是今天的交易日才抓）
-    (function maybeAutoFetchAfterClose() {
-      if (!isAfterClose1345()) return;
-
-      const symbol = document.getElementById("symbol").value;
-      const marketCode = document.getElementById("marketCode").value;
-      const cached = getCached(symbol, marketCode);
-
-      const taipeiToday = getTaipeiISODate();
-      const cachedTradeDate = cached?.data?.[0]?.date;
-
-      if (!cached || (cachedTradeDate && cachedTradeDate !== taipeiToday)) {
-        fetchAndRender({ silentToast: true });
-      }
-    })();
+    // 初始載入
+    refresh30();
   </script>
 </body>
 </html>
-
-
-
