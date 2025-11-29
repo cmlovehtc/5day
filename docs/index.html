@@ -83,7 +83,7 @@
   <script>
     // ✅ 你的 Vercel 網址（後端 API）
     const API_BASE = "https://5day.vercel.app";
-
+    const res = await fetch(`${API_BASE}/api/closes?symbol=TX&days=30&marketCode=0`);
     let chart;
 
     const CACHE_VERSION = "v1";
@@ -329,3 +329,4 @@
   </script>
 </body>
 </html>
+
