@@ -13,7 +13,9 @@
     <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">收盤價/最後成交價 & 前四日平均</h1>
-        <p class="text-slate-300 mt-2">會記住你上次抓到的資料；下次進來先顯示快取，按「更新」才重新抓。</p>
+        <p class="text-slate-300 mt-2">
+          會記住你上次抓到的資料；下次進來先顯示快取，按「更新」才重新抓。
+        </p>
       </div>
 
       <div class="flex gap-2 items-center">
@@ -79,11 +81,14 @@
   </main>
 
   <script>
+    // ✅ 你的 Vercel 網址（後端 API）
+    const API_BASE = "https://5day.vercel.app";
+
     let chart;
 
     const CACHE_VERSION = "v1";
-    const CACHE_KEY = `tx_cache_${CACHE_VERSION}`; // 存一包 map：{ "TX_0": {...}, "TMF_0": {...} ... }
-    const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 快取保留 7 天
+    const CACHE_KEY = `tx_cache_${CACHE_VERSION}`;
+    const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
     function toast(msg) {
       const t = document.getElementById("toast");
@@ -112,9 +117,11 @@
     }
 
     function getTaipeiISODate() {
-      // yyyy-mm-dd（台北）
-      const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" })
-        .formatToParts(new Date());
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Taipei",
+        year: "numeric", month: "2-digit", day: "2-digit"
+      }).formatToParts(new Date());
+
       const y = parts.find(p => p.type === "year").value;
       const m = parts.find(p => p.type === "month").value;
       const d = parts.find(p => p.type === "day").value;
@@ -152,11 +159,7 @@
     }
 
     function saveCacheMap(map) {
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(map));
-      } catch {
-        // ignore quota errors
-      }
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(map)); } catch {}
     }
 
     function getCached(symbol, marketCode) {
@@ -165,14 +168,12 @@
       const entry = map[key];
       if (!entry) return null;
 
-      // 過期就丟掉
       if (!entry.savedAt || (Date.now() - entry.savedAt > CACHE_MAX_AGE_MS)) {
         delete map[key];
         saveCacheMap(map);
         return null;
       }
-
-      return entry.payload || null; // payload = 後端 json
+      return entry.payload || null;
     }
 
     function setCached(symbol, marketCode, payload) {
@@ -220,7 +221,6 @@
       const tag = fromCache ? "（快取）" : "";
       status.textContent = `更新時間（台北）：${new Date(json.fetchedAtTaipei).toLocaleString("zh-TW")} ${tag}`;
 
-      // chart (old -> new)
       const labels = [...data].reverse().map(d => d.date);
       const closes = [...data].reverse().map(d => d.close);
       const avgLine = buildPrev4AvgLine(data);
@@ -259,11 +259,14 @@
       }
 
       status.textContent = "抓資料中…";
-      const res = await fetch(`/api/closes?symbol=${encodeURIComponent(symbol)}&days=30&marketCode=${encodeURIComponent(marketCode)}`);
+
+      // ✅ 改成呼叫 Vercel API
+      const url = `${API_BASE}/api/closes?symbol=${encodeURIComponent(symbol)}&days=30&marketCode=${encodeURIComponent(marketCode)}`;
+      const res = await fetch(url);
       const json = await res.json();
 
       if (!json?.data?.length) {
-        status.textContent = "沒有抓到資料（網站維護/非交易日/連線失敗）。";
+        status.textContent = "沒有抓到資料（API 無回應/非交易日/連線失敗）。";
         return;
       }
 
@@ -282,18 +285,19 @@
       return null;
     }
 
-    // ✅ 更新：永遠重新抓（你要的）
+    // ✅ 更新：永遠重新抓（不限制時間）
     document.getElementById("refresh").addEventListener("click", () => {
       fetchAndRender({ silentToast: false });
     });
 
-    // 切換商品/時段：先顯示該組合的快取；沒有快取就不抓（等你按更新）
+    // 切換：先顯示快取，沒有就不抓（等你按更新）
     document.getElementById("symbol").addEventListener("change", () => {
       const cached = showCacheIfAny();
       if (!cached) {
         document.getElementById("status").textContent = "此組合沒有快取；按「更新」才抓資料。";
       }
     });
+
     document.getElementById("marketCode").addEventListener("change", () => {
       const cached = showCacheIfAny();
       if (!cached) {
@@ -301,13 +305,13 @@
       }
     });
 
-    // ✅ 首次進來：先顯示快取（不抓）
+    // 首次進來：先顯示快取
     const cachedOnLoad = showCacheIfAny();
     if (!cachedOnLoad) {
       document.getElementById("status").textContent = "尚無快取；按「更新」開始抓資料。";
     }
 
-    // ✅ 若你仍想保留「收盤後自動抓一次」：只在收盤後且快取不是今天的交易日才自動抓
+    // 收盤後自動抓一次（只有快取不是今天的交易日才抓）
     (function maybeAutoFetchAfterClose() {
       if (!isAfterClose1345()) return;
 
@@ -318,7 +322,6 @@
       const taipeiToday = getTaipeiISODate();
       const cachedTradeDate = cached?.data?.[0]?.date;
 
-      // 沒快取 或 快取不是今天交易日 -> 自動抓一次
       if (!cached || (cachedTradeDate && cachedTradeDate !== taipeiToday)) {
         fetchAndRender({ silentToast: true });
       }
