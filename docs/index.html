@@ -16,11 +16,10 @@
           收盤價/最後成交價 & 前四日平均
         </h1>
         <p class="text-slate-300 mt-2 text-sm sm:text-base leading-relaxed">
-          本頁只讀後端共享快取（所有人看到同一份資料）；後端會在一般收盤後與盤後結束後自動更新。
+          本頁只讀後端共享快取（所有人看到同一份資料）；前端會先顯示快取再背景同步。
         </p>
       </div>
 
-      <!-- Controls (mobile-first) -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <label class="block">
           <div class="text-xs text-slate-400 mb-1">商品</div>
@@ -48,7 +47,6 @@
       </div>
     </header>
 
-    <!-- Cards -->
     <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-5 sm:mt-6">
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
         <div class="text-slate-300 text-sm">最新交易日收盤價（最後成交價）</div>
@@ -75,7 +73,6 @@
       </div>
     </section>
 
-    <!-- Chart -->
     <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 mt-4">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
@@ -90,20 +87,25 @@
       </div>
     </section>
 
-    <!-- Toast -->
     <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden
       bg-slate-900 border border-slate-700 text-slate-100 px-4 py-2 rounded-xl shadow-lg text-sm"></div>
   </main>
 
   <script>
-    // ✅ 你的 Vercel 後端（共享快取）
     const API_BASE = "https://5day.vercel.app";
-
-    // 2 分鐘同步一次（你可以改成 60_000 = 1 分鐘）
     const POLL_MS = 120000;
+
+    // local cache: memory + localStorage（一般模式秒切換；無痕只有 memory）
+    const LS_KEY = "fut_sharedcache_v1";
+    const memCache = new Map(); // key -> payload
 
     let chart = null;
     let pollTimer = null;
+    let reqSeq = 0;
+
+    function keyOf(symbol, marketCode) {
+      return `${symbol}:${marketCode}`;
+    }
 
     function toast(msg) {
       const t = document.getElementById("toast");
@@ -118,8 +120,37 @@
       return new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 2 }).format(n);
     }
 
-    // dataNewestFirst[0] = 最新(C0)
-    // avgLine[i] = avg of (i+1..i+4)
+    function setStatus(text) { document.getElementById("status").textContent = text; }
+    function setRetryVisible(visible) {
+      document.getElementById("retry").classList.toggle("hidden", !visible);
+    }
+
+    function loadLS() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return {};
+        const obj = JSON.parse(raw);
+        return obj && typeof obj === "object" ? obj : {};
+      } catch { return {}; }
+    }
+    function saveLS(mapObj) {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(mapObj)); } catch {}
+    }
+    function getCached(symbol, marketCode) {
+      const k = keyOf(symbol, marketCode);
+      if (memCache.has(k)) return memCache.get(k);
+      const ls = loadLS();
+      if (ls[k]) return ls[k];
+      return null;
+    }
+    function setCached(symbol, marketCode, payload) {
+      const k = keyOf(symbol, marketCode);
+      memCache.set(k, payload);
+      const ls = loadLS();
+      ls[k] = payload;
+      saveLS(ls);
+    }
+
     function buildPrev4AvgLine(dataNewestFirst) {
       const closes = dataNewestFirst.map(d => d.close);
       return closes.map((_, i) => {
@@ -130,16 +161,7 @@
       });
     }
 
-    function setStatus(text) {
-      document.getElementById("status").textContent = text;
-    }
-
-    function setRetryVisible(visible) {
-      const btn = document.getElementById("retry");
-      btn.classList.toggle("hidden", !visible);
-    }
-
-    function render(json) {
+    function render(json, { note = "" } = {}) {
       const data = json?.data || [];
       if (!data.length) {
         setStatus("沒有資料可顯示（等待後端更新/或資料源暫時不可用）。");
@@ -147,7 +169,6 @@
       }
 
       const today = data[0];
-
       document.getElementById("closeToday").textContent = fmt(today.close);
       document.getElementById("closeMeta").textContent =
         `日期：${today.date}｜合約月：${today.contractMonth}｜成交量：${fmt(today.volume)}`;
@@ -174,10 +195,11 @@
         document.getElementById("diffMeta").textContent = "—";
       }
 
-      setStatus(`後端快取更新時間（台北）：${new Date(json.fetchedAtTaipei).toLocaleString("zh-TW")}`);
+      const noteText = note ? `｜${note}` : "";
+      setStatus(`後端快取更新時間（台北）：${new Date(json.fetchedAtTaipei).toLocaleString("zh-TW")}${noteText}`);
       setRetryVisible(false);
 
-      // Chart (old -> new)
+      // Chart
       const labels = [...data].reverse().map(d => d.date);
       const closes = [...data].reverse().map(d => d.close);
       const avgLine = buildPrev4AvgLine(data);
@@ -208,9 +230,15 @@
       });
     }
 
-    async function loadOnce({ silenceToast = false } = {}) {
+    function currentSelection() {
       const symbol = document.getElementById("symbol").value;
       const marketCode = document.getElementById("marketCode").value;
+      return { symbol, marketCode };
+    }
+
+    async function loadOnce({ silent = false } = {}) {
+      const { symbol, marketCode } = currentSelection();
+      const mySeq = ++reqSeq;
 
       try {
         setStatus("向後端讀取共享快取中…");
@@ -220,24 +248,45 @@
         const res = await fetch(url, { cache: "no-store" });
         const json = await res.json();
 
+        // 如果期間使用者又切換了選項，這次回來就丟掉（避免畫面跳）
+        if (mySeq !== reqSeq) return;
+
         if (!res.ok) {
           setStatus(`讀取失敗：${json?.error || res.status}`);
           setRetryVisible(true);
-          if (!silenceToast) toast("讀取失敗（可按右側「重新讀取」）");
+          if (!silent) toast("讀取失敗（可按「重新讀取」）");
           return;
         }
 
-        render(json);
+        // 偵錯提示：如果後端忽略 symbol，會在這裡被抓出來
+        let note = "";
+        if (json?.symbol && String(json.symbol).toUpperCase() !== symbol) {
+          note = `⚠️ 後端回傳 symbol=${json.symbol}（與選擇 ${symbol} 不一致）`;
+        }
+
+        setCached(symbol, marketCode, json);
+        render(json, { note });
       } catch (e) {
+        if (mySeq !== reqSeq) return;
         setStatus("連線失敗（請稍後再試或重新整理）。");
         setRetryVisible(true);
-        if (!silenceToast) toast("連線失敗");
+        if (!silent) toast("連線失敗");
       }
+    }
+
+    function showCacheImmediately() {
+      const { symbol, marketCode } = currentSelection();
+      const cached = getCached(symbol, marketCode);
+      if (cached) {
+        render(cached, { note: "本機快取" });
+        return true;
+      }
+      return false;
     }
 
     function startPolling() {
       stopPolling();
-      pollTimer = setInterval(() => loadOnce({ silenceToast: true }), POLL_MS);
+      pollTimer = setInterval(() => loadOnce({ silent: true }), POLL_MS);
       document.getElementById("autoInfo").textContent = `自動同步：每 ${Math.round(POLL_MS / 60000)} 分鐘檢查一次`;
     }
 
@@ -247,12 +296,19 @@
     }
 
     // events
-    document.getElementById("symbol").addEventListener("change", () => loadOnce({ silenceToast: true }));
-    document.getElementById("marketCode").addEventListener("change", () => loadOnce({ silenceToast: true }));
-    document.getElementById("retry").addEventListener("click", () => loadOnce({ silenceToast: false }));
+    document.getElementById("symbol").addEventListener("change", () => {
+      showCacheImmediately();
+      loadOnce({ silent: true });
+    });
+    document.getElementById("marketCode").addEventListener("change", () => {
+      showCacheImmediately();
+      loadOnce({ silent: true });
+    });
+    document.getElementById("retry").addEventListener("click", () => loadOnce({ silent: false }));
 
-    // initial
-    loadOnce({ silenceToast: true });
+    // init
+    if (!showCacheImmediately()) setStatus("尚無本機快取，準備向後端讀取…");
+    loadOnce({ silent: true });
     startPolling();
   </script>
 </body>
